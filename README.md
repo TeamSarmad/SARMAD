@@ -14,7 +14,7 @@ pip install -r requirements.txt
 Run the enhanced demo app:
 ```bash
 streamlit run demo_app_enhanced.py
-``
+```
 
 The app will open in your browser at `http://localhost:8501`
 
