@@ -16,6 +16,10 @@ Run the enhanced demo app:
 streamlit run demo_app_enhanced.py
 ```
 
+Notice: if the models folder `./SARMAD_MODEL` is missing, the demo will download it automatically. 
+Model's size is 16GB!
+Altenatively, extract `SARMAD_MODEL` manually in the same folder as `demo_app_enhanced.py`
+
 The app will open in your browser at `http://localhost:8501`
 
 ## Required Packages
@@ -25,4 +29,5 @@ The app will open in your browser at `http://localhost:8501`
 - numpy
 - gdown
 - plotly
+
 - xgboost
