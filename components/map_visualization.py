@@ -71,10 +71,10 @@ class SaudiMapVisualizer:
             hoverinfo='skip'
         ))
 
-        # Create color scale based on selected metric
+        # Create color scale based on selected metric with clear labeling
         if metric == 'avg_age_acceleration':
             colorscale = 'RdYlGn_r'  # Red for high acceleration, green for low
-            colorbar_title = 'Age Acceleration<br>(years)'
+            colorbar_title = 'Biological Age<br>← Younger | Older →'
         elif 'prevalence' in metric:
             colorscale = 'YlOrRd'
             colorbar_title = metric.replace('_', ' ').title() + ' (%)'
@@ -120,7 +120,9 @@ class SaudiMapVisualizer:
                          'Sample Size: %{customdata[1]:,.0f}<br>' +
                          'Avg Chronological Age: %{customdata[2]:.1f} years<br>' +
                          'Avg Biological Age: %{customdata[3]:.1f} years<br>' +
-                         'Age Acceleration: %{customdata[4]:+.2f} years<br>' +
+                         '<b>Biological Age Status: ' +
+                         '<span style="color: %{marker.color}">%{customdata[4]:+.2f} years</span></b><br>' +
+                         '(Positive = aging faster, Negative = aging slower)<br>' +
                          '─────────────────<br>' +
                          'Hypertension: %{customdata[5]:.1f}%<br>' +
                          'Diabetes: %{customdata[6]:.1f}%<br>' +
@@ -181,27 +183,40 @@ class SaudiMapVisualizer:
         # Color bars based on value (red for positive, green for negative)
         colors = ['#e74c3c' if acc > 0 else '#27ae60' for acc in age_accelerations]
 
+        # Create labels that explain the meaning
+        text_labels = []
+        for acc in age_accelerations:
+            if abs(acc) < 0.5:
+                text_labels.append(f'{acc:+.2f}')
+            elif acc > 0:
+                text_labels.append(f'{acc:+.2f} (older)')
+            else:
+                text_labels.append(f'{acc:+.2f} (younger)')
+
         fig.add_trace(go.Bar(
             x=regions,
             y=age_accelerations,
             marker=dict(color=colors),
-            text=[f'{acc:+.2f}' for acc in age_accelerations],
+            text=text_labels,
             textposition='outside',
             customdata=sample_sizes,
             hovertemplate='<b>%{x}</b><br>' +
-                         'Age Acceleration: %{y:+.2f} years<br>' +
+                         'Biological Age Status: %{y:+.2f} years<br>' +
+                         '%{y} > 0: Population aging faster than expected<br>' +
+                         '%{y} < 0: Population aging slower than expected<br>' +
                          'Sample Size: %{customdata:,.0f}' +
                          '<extra></extra>',
-            name='Age Acceleration'
+            name='Biological Age Status'
         ))
 
-        # Add zero line
-        fig.add_hline(y=0, line_dash="dash", line_color="gray", line_width=1)
+        # Add zero line with annotation
+        fig.add_hline(y=0, line_dash="dash", line_color="gray", line_width=1,
+                     annotation_text="Age-appropriate (baseline)")
 
         fig.update_layout(
-            title='Average Biological Age Acceleration by Region',
+            title='Regional Biological Age Comparison',
             xaxis_title='Region',
-            yaxis_title='Age Acceleration (years)',
+            yaxis_title='Biological Age Difference from Expected (years)',
             height=500,
             showlegend=False,
             xaxis_tickangle=-45,

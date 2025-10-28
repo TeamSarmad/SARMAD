@@ -448,15 +448,31 @@ class PatientSelector:
 
                 # Denormalize age acceleration
                 age_acc = self.shap_data['age_acc_test'] * scaler_stats['iqr']
+                min_acc = float(age_acc.min())
+                max_acc = float(age_acc.max())
+
+                # Create more intuitive labels
+                st.markdown("**Biological Age Status**")
+                st.caption("Filter patients by how their biological age compares to chronological age")
+
                 age_acc_range = st.slider(
-                    "Biological Age Acceleration (years)",
-                    min_value=float(age_acc.min()),
-                    max_value=float(age_acc.max()),
-                    value=(float(age_acc.min()), float(age_acc.max())),
+                    "Select Range",
+                    min_value=min_acc,
+                    max_value=max_acc,
+                    value=(min_acc, max_acc),
                     key="age_acc_filter",
-                    help="Difference between biological and chronological age"
+                    help="Negative values = aging slower (younger), Positive values = aging faster (older)",
+                    format="%.1f years"
                 )
-                if age_acc_range != (float(age_acc.min()), float(age_acc.max())):
+
+                # Show interpretation of selected range
+                if age_acc_range[0] > 0:
+                    st.info(f"🔴 Showing patients aging {age_acc_range[0]:.1f} to {age_acc_range[1]:.1f} years FASTER")
+                elif age_acc_range[1] < 0:
+                    st.success(f"🟢 Showing patients aging {abs(age_acc_range[1]):.1f} to {abs(age_acc_range[0]):.1f} years SLOWER")
+                else:
+                    st.info(f"Showing patients from {abs(age_acc_range[0]):.1f} years younger to {age_acc_range[1]:.1f} years older")
+                if age_acc_range != (min_acc, max_acc):
                     self.filters['age_acceleration'] = age_acc_range
 
         with col2:

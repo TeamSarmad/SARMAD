@@ -296,21 +296,38 @@ class ModelRunner:
             showlegend=False
         ))
 
-        # Add feature contribution bars
+        # Add feature contribution bars with clear labeling
         for i, (feature, value) in enumerate(zip(features, values)):
-            color = '#e74c3c' if value > 0 else '#27ae60'
+            # Color based on impact direction
+            if value > 0:
+                color = '#e74c3c'  # Red for aging factors
+                impact_text = 'Accelerates aging'
+            else:
+                color = '#27ae60'  # Green for protective factors
+                impact_text = 'Slows aging'
+
+            # Clean feature name
+            clean_feature = (feature.replace('_x', '')
+                                  .replace('_', ' ')
+                                  .replace('has ', '')
+                                  .replace(' True', '')
+                                  .replace(' False', '')
+                                  .title())
 
             fig.add_trace(go.Bar(
                 x=[abs(value)],
-                y=[feature],
+                y=[clean_feature],
                 orientation='h',
-                marker=dict(color=color),
+                marker=dict(color=color, width=0.8),
                 base=cumulative[i] if value > 0 else cumulative[i+1],
-                name=feature,
+                name=clean_feature,
                 showlegend=False,
-                text=f'{value:+.3f}',
+                text=f'{value:+.2f}',
                 textposition='outside',
-                hovertemplate=f'{feature}<br>Impact: {value:+.3f}<extra></extra>'
+                hovertemplate=(f'<b>{clean_feature}</b><br>'
+                             f'Impact: {value:+.2f}<br>'
+                             f'{impact_text}<br>'
+                             f'<extra></extra>')
             ))
 
         # Add final prediction line
@@ -318,13 +335,58 @@ class ModelRunner:
         fig.add_vline(x=final_value, line_dash="dash", line_color="black",
                      annotation_text=f"Prediction: {final_value:.3f}")
 
+        # Add legend for colors
+        fig.add_trace(go.Bar(
+            x=[0],
+            y=['Legend'],
+            orientation='h',
+            marker=dict(color='#e74c3c'),
+            name='Aging Factors',
+            showlegend=True,
+            visible='legendonly'
+        ))
+        fig.add_trace(go.Bar(
+            x=[0],
+            y=['Legend'],
+            orientation='h',
+            marker=dict(color='#27ae60'),
+            name='Protective Factors',
+            showlegend=True,
+            visible='legendonly'
+        ))
+
         fig.update_layout(
-            title='Feature Contributions to Biological Age',
-            xaxis_title='Contribution to Prediction',
-            yaxis_title='Features',
-            height=500,
-            showlegend=False,
-            yaxis=dict(autorange="reversed")
+            title={
+                'text': 'Factors Contributing to Your Biological Age',
+                'x': 0.5,
+                'xanchor': 'center'
+            },
+            xaxis_title='Impact on Biological Age',
+            yaxis_title='Health Factors',
+            height=1200,
+            showlegend=True,
+            legend=dict(
+                orientation='h',
+                yanchor='top',
+                y=1.1,
+                xanchor='center',
+                x=0.5
+            ),
+            yaxis=dict(
+                autorange="reversed",
+                categorygap=0.1 # KEY FIX: This reduces the space between bars for a thicker look
+            ),
+            annotations=[
+                dict(
+                    text='← Younger | Older →',
+                    xref='paper',
+                    yref='paper',
+                    x=0.5,
+                    y=-0.15,
+                    showarrow=False,
+                    font=dict(size=11, color='gray')
+                )
+            ]
         )
 
         return fig
@@ -344,7 +406,7 @@ class ModelRunner:
 
         fig = go.Figure(go.Indicator(
             mode="gauge+number+delta",
-            value=risk_score * 100,
+            value=risk_score * 100 if risk_score > 0 else risk_score * -100,
             domain={'x': [0, 1], 'y': [0, 1]},
             title={'text': f"Mortality Risk ({self.time_horizon.replace('_', ' ')})",
                    'font': {'size': 20}},

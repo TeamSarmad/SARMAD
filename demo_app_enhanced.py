@@ -10,8 +10,6 @@ import gdown
 import plotly.graph_objects as go
 import plotly.express as px
 from pathlib import Path
-import pickle
-import json
 
 GDRIVE_FILE_ID = "1bxxh_YOIo9vW6cfVhfUBrKsIHGhZSqSZ" # <--- REPLACE WITH YOUR ACTUAL GOOGLE DRIVE FOLDER ID
 DATA_FOLDER = Path("SARMAD_MODEL")
@@ -22,6 +20,11 @@ from components.map_visualization import SaudiMapVisualizer
 from components.patient_selector import PatientSelector
 from components.model_runner import ModelRunner
 from components.visualizations import EnhancedVisualizations
+from components.display_helpers import (
+    format_age_acceleration, format_risk_level, format_feature_impact,
+    format_biomarker_status, format_improvement_metric,
+    render_age_metric, render_risk_metric, format_correlation_interpretation
+)
 
 # Page configuration
 st.set_page_config(
@@ -283,8 +286,11 @@ def render_region_details(region_name, regional_data, model_data, map_viz, enhan
 
     with col3:
         age_acc = region_stats['avg_age_acceleration']
-        color = "inverse" if age_acc > 0 else "normal"
-        st.metric("Age Acceleration", f"{age_acc:+.2f} yrs", delta_color=color)
+        age_info = format_age_acceleration(age_acc)
+        st.metric("Biological Age", age_info['short'], help=age_info['interpretation'])
+        # Add colored badge below metric
+        st.markdown(f"<span style='color:{age_info['color']};font-weight:bold;font-size:14px'>"
+                   f"{age_info['badge']}</span>", unsafe_allow_html=True)
 
     with col4:
         # Check for diabetes prevalence with better handling
@@ -401,7 +407,15 @@ def render_cohort_analysis(patient_selector, model_runner, model_data, enhanced_
             with col2:
                 if 'age_acceleration' in bio_age_results:
                     avg_acc = np.mean(bio_age_results['age_acceleration'])
-                    st.metric("Avg Age Acceleration", f"{avg_acc:+.2f} years")
+                    age_info = format_age_acceleration(avg_acc)
+                    st.metric("Cohort Biological Age", age_info['short'], help=age_info['interpretation'])
+                    # Add interpretation badge
+                    if abs(avg_acc) >= 0.5:
+                        badge_color = '#e74c3c' if avg_acc > 0 else '#27ae60'
+                        badge_text = 'Aging Faster' if avg_acc > 0 else 'Aging Slower'
+                        st.markdown(f"<span style='background-color:{badge_color};color:white;"
+                                  f"padding:2px 8px;border-radius:4px;font-size:12px'>"
+                                  f"{badge_text}</span>", unsafe_allow_html=True)
 
             with col3:
                 if 'risk_scores' in mortality_results:
@@ -500,22 +514,93 @@ def render_cohort_analysis(patient_selector, model_runner, model_data, enhanced_
 
                     # Calculate correlations with age acceleration
                     if 'age_acceleration' in bio_age_results:
+                        st.markdown("#### Biomarker Impact on Aging")
+                        st.markdown("*How your biomarkers relate to biological aging:*")
+
                         correlations = []
+                        interpretations = []
                         for bio in selected_biomarkers:
                             corr = np.corrcoef(X_selected[bio].fillna(0),
                                               bio_age_results['age_acceleration'])[0, 1]
+                            clean_name = bio.replace('_x', '').replace('_', ' ').title()
+                            corr_info = format_correlation_interpretation(corr, clean_name)
+
                             correlations.append({
-                                'Biomarker': bio.replace('_x', '').replace('_', ' ').title(),
-                                'Correlation': corr
+                                'Biomarker': clean_name,
+                                'Correlation': corr,
+                                'Impact': 'Harmful' if corr > 0.1 else 'Protective' if corr < -0.1 else 'Neutral',
+                                'Strength': corr_info['strength']
                             })
+                            interpretations.append(corr_info)
 
                         corr_df = pd.DataFrame(correlations)
-                        fig = px.bar(corr_df, x='Biomarker', y='Correlation',
-                                    color='Correlation', color_continuous_scale='RdBu',
-                                    color_continuous_midpoint=0,
-                                    title='Biomarker Correlations with Age Acceleration')
-                        fig.update_layout(height=400)
+
+                        # Create enhanced bar chart with clear labels
+                        fig = go.Figure()
+
+                        for idx, row in corr_df.iterrows():
+                            info = interpretations[idx]
+                            # Determine bar color based on impact
+                            if row['Correlation'] > 0.1:
+                                bar_color = '#e74c3c'  # Red for harmful
+                                label_text = '↗ Increases aging'
+                            elif row['Correlation'] < -0.1:
+                                bar_color = '#27ae60'  # Green for protective
+                                label_text = '↘ Slows aging'
+                            else:
+                                bar_color = '#95a5a6'  # Gray for neutral
+                                label_text = '○ No effect'
+
+                            fig.add_trace(go.Bar(
+                                x=[row['Biomarker']],
+                                y=[row['Correlation']],
+                                name=row['Biomarker'],
+                                marker_color=bar_color,
+                                text=label_text,
+                                textposition='outside',
+                                showlegend=False,
+                                hovertemplate=(
+                                    f"<b>{row['Biomarker']}</b><br>"
+                                    f"Correlation: {row['Correlation']:.3f}<br>"
+                                    f"{info['interpretation']}<br>"
+                                    f"<extra></extra>"
+                                )
+                            ))
+
+                        fig.update_layout(
+                            title='Biomarker Relationships with Biological Aging',
+                            xaxis_title='Biomarker',
+                            yaxis_title='Correlation with Age Acceleration',
+                            height=400,
+                            yaxis=dict(
+                                zeroline=True,
+                                zerolinewidth=2,
+                                zerolinecolor='lightgray'
+                            )
+                        )
+
+                        # Add interpretation guide
+                        fig.add_annotation(
+                            text="↗ Above zero: Higher values associated with faster aging<br>"
+                                 "↘ Below zero: Higher values associated with slower aging",
+                            xref="paper", yref="paper",
+                            x=0, y=1.15,
+                            showarrow=False,
+                            font=dict(size=10, color="gray"),
+                            align="left"
+                        )
+
                         st.plotly_chart(fig, use_container_width=True)
+
+                        # Add detailed interpretation below
+                        with st.expander("📊 Understanding These Correlations"):
+                            for info in interpretations:
+                                if info['impact'] == 'negative':
+                                    st.markdown(f"🔴 **{info['interpretation'].split(':')[0]}**: {info['direction']}")
+                                elif info['impact'] == 'positive':
+                                    st.markdown(f"🟢 **{info['interpretation'].split(':')[0]}**: {info['direction']}")
+                                else:
+                                    st.markdown(f"⚪ **{info['interpretation'].split(':')[0]}**: {info['direction']}")
 
 
 def render_individual_predictions(patient_selector, model_runner, model_data, enhanced_viz):
@@ -612,8 +697,17 @@ def render_individual_predictions(patient_selector, model_runner, model_data, en
             with col3:
                 if 'age_acceleration' in bio_age_results:
                     acc = bio_age_results['age_acceleration'][0]
-                    st.metric("Age Acceleration", f"{acc:+.1f} years",
-                             delta_color="inverse" if acc > 0 else "normal")
+                    age_info = format_age_acceleration(acc)
+                    st.metric("Biological Age Status", age_info['short'], help=age_info['interpretation'])
+                    # Add clear interpretation
+                    if acc > 5:
+                        st.error(f"⚠️ {age_info['text']}")
+                    elif acc > 0:
+                        st.warning(f"! {age_info['text']}")
+                    elif acc < -2:
+                        st.success(f"✓ {age_info['text']}")
+                    else:
+                        st.info(f"✓ {age_info['text']}")
 
             with col4:
                 if 'risk_scores' in mortality_results:
@@ -664,15 +758,51 @@ def render_individual_predictions(patient_selector, model_runner, model_data, en
                 st.plotly_chart(waterfall_fig, use_container_width=True)
 
                 # Top contributing features
-                st.subheader("Top Contributing Features")
-                top_features = feature_importance['top_features'][:10]
+                st.subheader("Feature Impact on Biological Age")
+                st.markdown("*How each factor affects your biological age:*")
 
+                # Separate harmful and protective factors
+                harmful_factors = []
+                protective_factors = []
+
+                top_features = feature_importance['top_features'][:20]
                 for feat in top_features:
-                    direction = "↑" if feat['shap_value'] > 0 else "↓"
-                    color = "red" if feat['shap_value'] > 0 else "green"
-                    st.markdown(f"{direction} **{feat['feature']}**: "
-                              f"<span style='color:{color}'>{feat['shap_value']:+.3f} years</span>",
-                              unsafe_allow_html=True)
+                    feature_info = format_feature_impact(
+                        feat['feature'],
+                        feat['shap_value'],
+                        feat.get('value')
+                    )
+
+                    if feat['shap_value'] > 0.1:
+                        harmful_factors.append((feat, feature_info))
+                    elif feat['shap_value'] < -0.1:
+                        protective_factors.append((feat, feature_info))
+
+                # Display harmful factors
+                if harmful_factors:
+                    st.markdown("##### 🔴 Factors Accelerating Aging:")
+                    for feat, info in harmful_factors:
+                        st.markdown(
+                            f"<div style='padding:4px 0'>"
+                            f"<span style='color:{info['color']}'>{info['icon']}</span> "
+                            f"<b>{info['name']}</b>: "
+                            f"<span style='color:{info['color']}'>{info['impact']}</span>"
+                            f"</div>",
+                            unsafe_allow_html=True
+                        )
+
+                # Display protective factors
+                if protective_factors:
+                    st.markdown("##### 🟢 Factors Slowing Aging:")
+                    for feat, info in protective_factors:
+                        st.markdown(
+                            f"<div style='padding:4px 0'>"
+                            f"<span style='color:{info['color']}'>{info['icon']}</span> "
+                            f"<b>{info['name']}</b>: "
+                            f"<span style='color:{info['color']}'>{info['impact']}</span>"
+                            f"</div>",
+                            unsafe_allow_html=True
+                        )
 
         with tab3:
             # Get biomarker values
