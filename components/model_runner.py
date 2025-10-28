@@ -62,7 +62,20 @@ class ModelRunner:
 
                 # Get SHAP values if explainer available
                 if self.shap_explainer is not None:
-                    shap_values = self.shap_explainer.shap_values(X)
+                    # Handle both old and new SHAP API
+                    shap_output = self.shap_explainer.shap_values(X)
+
+                    # Check if it's an Explanation object (new API) or array (old API)
+                    if hasattr(shap_output, 'values'):
+                        # New SHAP API - Explanation object
+                        shap_values = shap_output.values
+                    elif isinstance(shap_output, np.ndarray):
+                        # Old SHAP API - direct array
+                        shap_values = shap_output
+                    else:
+                        # Try as is
+                        shap_values = shap_output
+
                     results['shap_values'] = shap_values
                     results['base_value'] = self.shap_explainer.expected_value
 
@@ -196,7 +209,20 @@ class ModelRunner:
         try:
             # Get SHAP values for the patient
             patient_features = X.iloc[patient_idx:patient_idx+1]
-            shap_values = self.shap_explainer.shap_values(patient_features)[0]
+
+            # Handle both old and new SHAP API
+            shap_output = self.shap_explainer.shap_values(patient_features)
+
+            # Check if it's an Explanation object (new API) or array (old API)
+            if hasattr(shap_output, 'values'):
+                # New SHAP API - Explanation object
+                shap_values = shap_output.values[0] if shap_output.values.ndim > 1 else shap_output.values
+            elif isinstance(shap_output, np.ndarray):
+                # Old SHAP API - direct array
+                shap_values = shap_output[0] if shap_output.ndim > 1 else shap_output
+            else:
+                # Try indexing directly
+                shap_values = shap_output[0]
 
             # Get feature names and values
             feature_names = X.columns.tolist()
@@ -462,7 +488,9 @@ class ModelRunner:
 
         # Generate placeholder data
         from utils.data_loader import DataLoader
-        loader = DataLoader()
+        # Use the same base_path as the main model data
+        base_path = getattr(self, 'base_path', "./SARMAD_MODEL")
+        loader = DataLoader(base_path=base_path)
         scaler_stats = loader.load_age_scaler_stats()
 
         if 'age_x' in X.columns:

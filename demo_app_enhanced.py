@@ -13,8 +13,8 @@ from pathlib import Path
 import pickle
 import json
 
-GDRIVE_FILE_ID = "12UWON-ELqZon5MqVabFQvTFWakCgyF5v" # <--- REPLACE WITH YOUR ACTUAL GOOGLE DRIVE FOLDER ID
-DATA_FOLDER = Path("results_full")
+GDRIVE_FILE_ID = "1bxxh_YOIo9vW6cfVhfUBrKsIHGhZSqSZ" # <--- REPLACE WITH YOUR ACTUAL GOOGLE DRIVE FOLDER ID
+DATA_FOLDER = Path("SARMAD_MODEL")
 
 # Import custom components
 from utils.data_loader import DataLoader
@@ -287,8 +287,12 @@ def render_region_details(region_name, regional_data, model_data, map_viz, enhan
         st.metric("Age Acceleration", f"{age_acc:+.2f} yrs", delta_color=color)
 
     with col4:
-        diabetes_prev = region_stats.get('diabetes_prevalence', 0) * 100
-        st.metric("Diabetes", f"{diabetes_prev:.1f}%")
+        # Check for diabetes prevalence with better handling
+        diabetes_prev = region_stats.get('diabetes_prevalence', None)
+        if diabetes_prev is not None:
+            st.metric("Diabetes", f"{diabetes_prev * 100:.1f}%")
+        else:
+            st.metric("Diabetes", "N/A", help="Diabetes prevalence data not available for this region")
 
     # Detailed visualizations
     tab1, tab2, tab3 = st.tabs(["Demographics", "Health Conditions", "Biomarker Analysis"])
@@ -314,14 +318,32 @@ def render_region_details(region_name, regional_data, model_data, map_viz, enhan
                     'Condition': condition.capitalize(),
                     'Prevalence': region_stats[key] * 100
                 })
+            else:
+                # Add with N/A if not available
+                prevalence_data.append({
+                    'Condition': condition.capitalize(),
+                    'Prevalence': None
+                })
 
         if prevalence_data:
             df = pd.DataFrame(prevalence_data)
-            fig = px.bar(df, x='Condition', y='Prevalence',
-                        color='Prevalence', color_continuous_scale='RdYlGn_r',
-                        title=f'Disease Prevalence in {region_name}')
-            fig.update_layout(yaxis_title='Prevalence (%)')
-            st.plotly_chart(fig, use_container_width=True)
+
+            # Filter out None values for plotting
+            df_available = df[df['Prevalence'].notna()]
+            df_missing = df[df['Prevalence'].isna()]
+
+            if not df_available.empty:
+                fig = px.bar(df_available, x='Condition', y='Prevalence',
+                            color='Prevalence', color_continuous_scale='RdYlGn_r',
+                            title=f'Disease Prevalence in {region_name}')
+                fig.update_layout(yaxis_title='Prevalence (%)')
+                st.plotly_chart(fig, use_container_width=True)
+
+                if not df_missing.empty:
+                    missing_conditions = ', '.join(df_missing['Condition'].tolist())
+                    st.info(f"Data not available for: {missing_conditions}")
+            else:
+                st.warning("No disease prevalence data available for this region")
 
     with tab3:
         # Biomarker distributions
@@ -527,7 +549,7 @@ def render_individual_predictions(patient_selector, model_runner, model_data, en
             age_range = st.slider(
                 "Age Range",
                 min_value=int(ages.min()),
-                max_value=int(ages.max()),
+                max_value=1,
                 value=(30, 60)
             )
         else:
@@ -815,17 +837,16 @@ def render_model_performance(model_data, enhanced_viz):
         st.plotly_chart(fig, use_container_width=True)
 
     with tab2:
-        # Global feature importance
         st.subheader("Global Feature Importance")
 
         # Get feature names from data splits
         X_test = model_data['data_splits']['X_test']
         feature_names = X_test.columns.tolist()
 
-        # Calculate feature importance (simplified - in real app, use SHAP values)
+        # Calculate feature importance for all features
         importance_scores = []
-        for feat in feature_names[:20]:  # Top 20 features
-            # Simulate importance based on feature type
+        for feat in feature_names:
+            # Simulate importance based on feature type (in production, use real SHAP values)
             if 'age' in feat.lower():
                 score = np.random.uniform(0.8, 1.0)
             elif any(cond in feat.lower() for cond in ['diabetes', 'hypertension', 'creatinine']):
@@ -835,18 +856,78 @@ def render_model_performance(model_data, enhanced_viz):
 
             importance_scores.append({
                 'Feature': feat.replace('_x', '').replace('_', ' ').replace('has ', '').title(),
+                'Feature_Raw': feat,
                 'Importance': score
             })
 
         importance_df = pd.DataFrame(importance_scores)
-        importance_df = importance_df.sort_values('Importance', ascending=True)
+        importance_df = importance_df.sort_values('Importance', ascending=False)
 
-        fig = px.bar(importance_df, x='Importance', y='Feature', orientation='h',
+        # Display top 10 by default
+        st.markdown("#### Top 10 Most Important Features")
+        top_10 = importance_df.head(10)
+        fig_top = px.bar(top_10, x='Importance', y='Feature', orientation='h',
                     color='Importance', color_continuous_scale='Viridis',
-                    title='Top 20 Most Important Features')
-        fig.update_layout(height=600, showlegend=False)
+                    title='Top 10 Features')
+        fig_top.update_layout(height=400, showlegend=False, yaxis={'autorange': 'reversed'})
+        st.plotly_chart(fig_top, use_container_width=True)
 
-        st.plotly_chart(fig, use_container_width=True)
+        # Interactive feature selection
+        st.markdown("---")
+        st.markdown("#### Compare Selected Features")
+
+        # Create multiselect for feature selection
+        selected_features = st.multiselect(
+            "Select features to compare (1 or more):",
+            options=importance_df['Feature_Raw'].tolist(),
+            format_func=lambda x: importance_df[importance_df['Feature_Raw'] == x]['Feature'].values[0],
+            default=importance_df['Feature_Raw'].tolist()[:5],  # Default to top 5
+            key="feature_comparison_select"
+        )
+
+        # Submit button
+        if st.button("Compare Selected Features", type="primary"):
+            if len(selected_features) > 0:
+                # Filter to selected features
+                selected_df = importance_df[importance_df['Feature_Raw'].isin(selected_features)]
+                selected_df = selected_df.sort_values('Importance', ascending=True)
+
+                # Create comparison visualization
+                fig_compare = go.Figure()
+
+                # Add bars
+                fig_compare.add_trace(go.Bar(
+                    x=selected_df['Importance'],
+                    y=selected_df['Feature'],
+                    orientation='h',
+                    marker=dict(
+                        color=selected_df['Importance'],
+                        colorscale='Viridis',
+                        showscale=True,
+                        colorbar=dict(title='Importance')
+                    ),
+                    text=[f'{v:.3f}' for v in selected_df['Importance']],
+                    textposition='outside'
+                ))
+
+                fig_compare.update_layout(
+                    title=f'Feature Importance Comparison ({len(selected_features)} features)',
+                    xaxis_title='Importance Score',
+                    yaxis_title='Feature',
+                    height=max(400, len(selected_features) * 30),
+                    showlegend=False
+                )
+
+                st.plotly_chart(fig_compare, use_container_width=True)
+
+                # Show statistics table
+                st.markdown("#### Selected Feature Statistics")
+                stats_table = selected_df[['Feature', 'Importance']].copy()
+                stats_table['Rank'] = range(1, len(stats_table) + 1)
+                st.dataframe(stats_table[['Rank', 'Feature', 'Importance']], use_container_width=True)
+
+            else:
+                st.warning("Please select at least one feature to compare.")
 
     with tab3:
         # Model comparison across time horizons

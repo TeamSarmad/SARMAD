@@ -276,18 +276,29 @@ class PatientSelector:
                             max_val = float(values.quantile(0.99))
                             mean_val = float(values.mean())
 
-                            biomarker_name = col.replace('_x', '').replace('_', ' ').title()
-                            range_val = st.slider(
-                                biomarker_name,
-                                min_value=min_val,
-                                max_value=max_val,
-                                value=(min_val, max_val),
-                                key=f"biomarker_{col}",
-                                help=f"Mean: {mean_val:.2f}"
-                            )
+                            # Check if range is valid for slider
+                            if max_val <= min_val:
+                                # Try using absolute min/max instead
+                                min_val = float(values.min())
+                                max_val = float(values.max())
 
-                            if range_val != (min_val, max_val):
-                                self.filters[f'biomarker_{col}'] = range_val
+                            # Only create slider if we have a valid range
+                            biomarker_name = col.replace('_x', '').replace('_', ' ').title()
+                            if max_val > min_val:
+                                range_val = st.slider(
+                                    biomarker_name,
+                                    min_value=min_val,
+                                    max_value=max_val,
+                                    value=(min_val, max_val),
+                                    key=f"biomarker_{col}",
+                                    help=f"Mean: {mean_val:.2f}"
+                                )
+
+                                if range_val != (min_val, max_val):
+                                    self.filters[f'biomarker_{col}'] = range_val
+                            else:
+                                # Skip this biomarker - no variation
+                                st.caption(f"{biomarker_name}: No variation (constant value: {min_val:.2f})")
         else:
             st.info(f"No {selected_group} biomarkers available")
 

@@ -18,37 +18,52 @@ class DataLoader:
         self.base_path = Path(base_path)
         self.cache = {}
 
+        # Detect if this is SARMAD_MODEL or results_full structure
+        self.is_sarmad = "SARMAD" in str(base_path).upper()
+
     @st.cache_data(ttl=3600)
     def load_model_data(_self, gender: str = 'male', time_horizon: str = '5_year') -> Dict[str, Any]:
         """Load model predictions and related data"""
 
+        # Adjust paths based on directory structure
+        if _self.is_sarmad:
+            # SARMAD_MODEL structure: gender folders at root level
+            shap_path = _self.base_path / f"{gender}/shap_ages.pkl"
+            splits_path = _self.base_path / f"prepared_data/{gender}/data_splits.pkl"
+            results_path = _self.base_path / f"{gender}/mortality_prediction_results.json"
+            model_path = _self.base_path / f"{gender}/model.pkl"
+            shap_explainer_path = _self.base_path / f"{gender}/shap_age_object.pkl"
+            mortality_model_path = _self.base_path / f"{gender}/mortality_model_{time_horizon.replace('_year', 'y')}_shap.pkl"
+        else:
+            # Original SI_leakage_results_test structure
+            shap_path = _self.base_path / f"{gender}/shap_ages.pkl"
+            splits_path = _self.base_path / f"prepared_data/{gender}/data_splits.pkl"
+            results_path = _self.base_path / f"{gender}/mortality_prediction_results.json"
+            model_path = _self.base_path / f"{gender}/model.pkl"
+            shap_explainer_path = _self.base_path / f"{gender}/shap_age_object.pkl"
+            mortality_model_path = _self.base_path / f"{gender}/mortality_model_{time_horizon.replace('_year', 'y')}_shap.pkl"
+
         # Load SHAP ages and predictions
-        shap_path = _self.base_path / f"{gender}/shap_ages.pkl"
         with open(shap_path, 'rb') as f:
             shap_data = pickle.load(f)
 
         # Load data splits
-        splits_path = _self.base_path / f"prepared_data/{gender}/data_splits.pkl"
         with open(splits_path, 'rb') as f:
             data_splits = pickle.load(f)
 
         # Load mortality prediction results
-        results_path = _self.base_path / f"{gender}/mortality_prediction_results.json"
         with open(results_path, 'r') as f:
             results = json.load(f)
 
         # Load actual models for predictions
-        model_path = _self.base_path / f"{gender}/model.pkl"
         with open(model_path, 'rb') as f:
             xgb_model = pickle.load(f)
 
         # Load SHAP explainer
-        shap_explainer_path = _self.base_path / f"{gender}/shap_age_object.pkl"
         with open(shap_explainer_path, 'rb') as f:
             shap_explainer = pickle.load(f)
 
         # Load mortality models
-        mortality_model_path = _self.base_path / f"{gender}/mortality_model_{time_horizon.replace('_year', 'y')}_shap.pkl"
         if mortality_model_path.exists():
             with open(mortality_model_path, 'rb') as f:
                 mortality_model = pickle.load(f)
@@ -135,11 +150,25 @@ class DataLoader:
             'patient_idx': range(len(X_test))
         })
 
-        # Add clinical conditions
-        for condition in ['has_hypertension_x_True', 'has_diabetes_x_True',
-                         'has_dyslipidemia_x_True', 'has_obesity_x_True']:
-            if condition in X_test.columns:
-                stats_df[condition] = X_test[condition].values
+        # Add clinical conditions - be flexible with column naming
+        condition_mappings = {
+            'hypertension': None,
+            'diabetes': None,
+            'dyslipidemia': None,
+            'obesity': None
+        }
+
+        # Look for condition columns with flexible matching
+        for col in X_test.columns:
+            col_lower = col.lower()
+            for condition in condition_mappings:
+                if condition in col_lower and ('has_' in col_lower or '_x_true' in col_lower):
+                    condition_mappings[condition] = col
+
+        # Add found condition columns to stats_df
+        for condition, col_name in condition_mappings.items():
+            if col_name is not None:
+                stats_df[f'has_{condition}_x_True'] = X_test[col_name].values
 
         # Compute regional statistics
         regional_stats = {}
