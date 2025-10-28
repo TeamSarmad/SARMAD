@@ -3,7 +3,4 @@ pandas
 numpy
 gdown
 plotly
-pathlib
-pickle
-json
 xgboost
